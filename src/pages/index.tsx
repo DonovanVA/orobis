@@ -18,6 +18,6 @@ export default function Home() {
   const [opened, setOpened] = useState(false);
   return (
  
-      <InfiniteCanvas height={1000} width={1000} />
+      <InfiniteCanvas height={2000} width={2000} />
   );
 }

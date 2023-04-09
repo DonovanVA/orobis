@@ -8,7 +8,14 @@ import {
   handleWheel,
 } from "./Controls";
 import { ScrollPosition, InfiniteCanvasProps, Node } from "./Types";
-const Canvas = styled.canvas``;
+import { crossProduct, drawEdges, drawNodes } from "./Utils";
+import { calculateArrowCoords } from "./Utils";
+const Canvas = styled.canvas`
+-webkit-font-smoothing: antialiased; /* subpixel-antialiased and others... */
+-webkit-filter: blur(0px);
+-webkit-perspective: 1000;
+filter: blur(0px);
+`;
 
 const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
   const MAX_ZOOM_LEVEL = 5; // Set your maximum zoom level here
@@ -28,7 +35,8 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       x: 100,
       y: 100,
       fillStyle: "#FFFFFF",
-      stokeStyle: "#000000",
+      strokeStyle: "#000000",
+      edges: [{ from: "node1", to: "node2" }],
     },
     {
       id: "node2",
@@ -37,7 +45,18 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       x: 200,
       y: 200,
       fillStyle: "#FFFFFF",
-      stokeStyle: "#000000",
+      strokeStyle: "#000000",
+      edges: [{ from: "node1", to: "node2" }],
+    },
+    {
+      id: "node3",
+      width: 50,
+      height: 50,
+      x: 300,
+      y: 300,
+      fillStyle: "#FFFFFF",
+      strokeStyle: "#000000",
+      edges: [{ from: "node3", to: "node2" }],
     },
   ]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
@@ -74,24 +93,37 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       // Remove the event listener when the component unmounts
     };
   }, [shouldUpdateCanvas]);
-
   useEffect(() => {
     const canvas = canvasRef.current;
+    
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    window.devicePixelRatio=2; 
+  
+  
+    
     if (!ctx) return;
+    
+    // Increase canvas resolution
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * ratio;
+    canvas.height = canvas.offsetHeight * ratio;
+    
+    // Scale down using CSS
+    canvas.style.width = canvas.offsetWidth + 'px';
+    canvas.style.height = canvas.offsetHeight + 'px';
+    
+    // Set transform to scale by ratio
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
     // Clear the canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw the grid
+    // Draw the edges with arrowheads
+    drawEdges(nodes, ctx);
 
     // Draw the nodes
-    nodes.forEach((node) => {
-      ctx.fillStyle = node.fillStyle;
-      ctx.fillRect(node.x, node.y, node.width, node.height);
-      ctx.strokeStyle = node.stokeStyle;
-      ctx.strokeRect(node.x, node.y, node.width, node.height);
-    });
+    drawNodes(nodes, ctx);
   }, [scrollPosition, zoomLevel, selectedNode, nodes]);
 
   useEffect(() => {
