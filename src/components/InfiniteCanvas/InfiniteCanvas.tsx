@@ -1,32 +1,27 @@
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, useLayoutEffect } from "react";
 import styled from "styled-components";
+import { handleMouseDown, handleMouseMove, handleMouseUp } from "./Controls";
 import {
-  handleScroll,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  handleWheel,
-} from "./Controls";
-import { ScrollPosition, InfiniteCanvasProps, Node } from "./Types";
-import { crossProduct, drawEdges, drawNodes } from "./Utils";
-import { calculateArrowCoords } from "./Utils";
+  ScrollPosition,
+  InfiniteCanvasProps,
+  Node,
+  Position,
+  Edge,
+} from "./Types";
+import { drawEdges, drawNodes } from "./Utils";
+import { colors } from "./UI";
+import _ from "lodash";
+import { findCycle } from "./Algorithms";
 const Canvas = styled.canvas`
--webkit-font-smoothing: antialiased; /* subpixel-antialiased and others... */
--webkit-filter: blur(0px);
--webkit-perspective: 1000;
-filter: blur(0px);
+  -webkit-font-smoothing: antialiased; /* subpixel-antialiased and others... */
+  -webkit-filter: blur(0px);
+  -webkit-perspective: 1000;
+  filter: blur(0px);
 `;
 
 const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
-  const MAX_ZOOM_LEVEL = 5; // Set your maximum zoom level here
-  const [scrollPosition, setScrollPosition] = useState<ScrollPosition>({
-    x: 0,
-    y: 0,
-  });
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const prevScrollPosition = useRef<ScrollPosition>({ x: 0, y: 0 });
-  const prevZoomLevel = useRef(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [edges, setEdges] = useState<Edge[]>([]);
   const [nodes, setNodes] = useState<Node[]>([
     {
       id: "node1",
@@ -36,7 +31,6 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       y: 100,
       fillStyle: "#FFFFFF",
       strokeStyle: "#000000",
-      edges: [{ from: "node1", to: "node2" }],
     },
     {
       id: "node2",
@@ -46,7 +40,6 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       y: 200,
       fillStyle: "#FFFFFF",
       strokeStyle: "#000000",
-      edges: [{ from: "node1", to: "node2" }],
     },
     {
       id: "node3",
@@ -56,16 +49,32 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       y: 300,
       fillStyle: "#FFFFFF",
       strokeStyle: "#000000",
-      edges: [{ from: "node3", to: "node2" }],
+    },
+    {
+      id: "node4",
+      width: 50,
+      height: 50,
+      x: 400,
+      y: 400,
+      fillStyle: "#FFFFFF",
+      strokeStyle: "#000000",
+    },
+    {
+      id: "node5",
+      width: 50,
+      height: 50,
+      x: 500,
+      y: 500,
+      fillStyle: "#FFFFFF",
+      strokeStyle: "#000000",
     },
   ]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [selectedNodePosition, setSelectedNodePosition] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [shouldUpdateCanvas, setShouldUpdateCanvas] = useState(false);
-  const [selecting, setSelecting] = useState(false);
+  const [selectedNodePosition, setSelectedNodePosition] =
+    useState<Position | null>(null);
+  const [shouldUpdateCanvas, setShouldUpdateCanvas] = useState<boolean>(false);
+  const [selecting, setSelecting] = useState<boolean>(false);
+  const [drawingEdge, setDrawingEdge] = useState<boolean>(false);
   useEffect(() => {
     let animationFrameId: number;
 
@@ -93,26 +102,26 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       // Remove the event listener when the component unmounts
     };
   }, [shouldUpdateCanvas]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    
+
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    window.devicePixelRatio=2; 
-  
-  
-    
     if (!ctx) return;
-    
+    const isHighResolution = window.matchMedia(
+      "(min-resolution: 2dppx), (min-device-pixel-ratio: 2)"
+    ).matches;
+
     // Increase canvas resolution
-    const ratio = window.devicePixelRatio || 1;
+    const ratio = isHighResolution ? 1.3 : 1;
+    window.devicePixelRatio = ratio;
     canvas.width = canvas.offsetWidth * ratio;
     canvas.height = canvas.offsetHeight * ratio;
-    
+
     // Scale down using CSS
-    canvas.style.width = canvas.offsetWidth + 'px';
-    canvas.style.height = canvas.offsetHeight + 'px';
-    
+    canvas.style.width = canvas.offsetWidth + "px";
+    canvas.style.height = canvas.offsetHeight + "px";
+
     // Set transform to scale by ratio
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
@@ -120,19 +129,15 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw the edges with arrowheads
-    drawEdges(nodes, ctx);
+    if (findCycle(nodes, edges)) {
+      drawEdges(nodes, edges, ctx, colors.defaultEdgeStrokeStyle);
+    } else {
+      drawEdges(nodes, edges, ctx, colors.NonCycleColor);
+    }
 
     // Draw the nodes
     drawNodes(nodes, ctx);
-  }, [scrollPosition, zoomLevel, selectedNode, nodes]);
-
-  useEffect(() => {
-    prevScrollPosition.current = scrollPosition;
-  }, [scrollPosition]);
-
-  useEffect(() => {
-    prevZoomLevel.current = zoomLevel;
-  }, [zoomLevel]);
+  }, [selectedNode, nodes, edges]);
 
   return (
     <Canvas
@@ -140,41 +145,50 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       ref={canvasRef}
       width={width}
       height={height}
-      onScroll={(e) => handleScroll(e, setScrollPosition)}
-      onWheel={handleWheel}
       onMouseDown={(e) =>
         handleMouseDown(
           e,
           canvasRef,
-          zoomLevel,
-          scrollPosition,
           nodes,
           selecting,
           setSelecting,
           setNodes,
           setSelectedNodePosition,
-          setSelectedNode
+          setSelectedNode,
+          setDrawingEdge
         )
       }
       onMouseMove={(e) =>
         handleMouseMove(
           e,
           canvasRef,
-          zoomLevel,
-          scrollPosition,
           nodes,
+          edges,
           selectedNode,
           selectedNodePosition,
           setNodes,
           setSelectedNodePosition,
           setSelectedNode,
+          drawingEdge,
           height,
           width
         )
       }
-      onMouseUp={() => handleMouseUp(setSelectedNode, setSelectedNodePosition)}
+      onMouseUp={(e) =>
+        handleMouseUp(
+          e,
+          selectedNode,
+          setSelectedNode,
+          setSelectedNodePosition,
+          drawingEdge,
+          setDrawingEdge,
+          nodes,
+          edges,
+          setEdges
+        )
+      }
     />
   );
 };
 
-export default InfiniteCanvas;
+export default memo(InfiniteCanvas);

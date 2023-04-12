@@ -7,7 +7,6 @@ export interface ScrollPosition extends Position {
   x: number;
   y: number;
 }
-
 export interface Node {
   id: string;
   width: number;
@@ -16,12 +15,12 @@ export interface Node {
   y: number;
   fillStyle: string;
   strokeStyle: string;
-  edges: Edge[];
 }
 
 export interface Edge {
   from: string;
   to: string;
+  weight:number;
 }
 
 export interface InfiniteCanvasProps {
@@ -32,4 +31,5 @@ export interface InfiniteCanvasProps {
 export interface Dot{
   x:number
   y:number
+  radius:number
 }
