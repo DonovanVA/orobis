@@ -1,15 +1,23 @@
 import { RefObject } from "react";
-import { Position, ScrollPosition, Node, Dot, Edge } from "./Types";
+import { Position, ScrollPosition } from "./Types";
 import {
   dragNodes,
-  dotCoordinates,
   drawEdgetoCursor,
   drawNodes,
   drawEdges,
   createEdge,
+  isInsideDot,
+  isInsideNode,
+  isPointInsideBoundingBox,
+  getBoundingBox
 } from "./Utils";
-import { colors } from "./UI";
-
+import { Node } from "./UI/Nodes/Defaults/DefaultTypes";
+import { Edge, Dot } from "./UI/Edges/Defaults/DefaultTypes";
+import { dotCoordinates } from "../Math/Math";
+import { EDGESCALE, edgeColors } from "./UI/Edges/Edges";
+import { defaultNodeConstructor } from "./UI/Nodes/Nodes";
+import { shortestDistancePair } from "../Math/Math";
+import { findControlPoint } from "../Math/Bezier";
 /**
  * This function handles the mouse down event
  * @param event A html mouse event
@@ -26,8 +34,10 @@ export const handleMouseDown = (
   event: React.MouseEvent<HTMLCanvasElement>,
   canvasRef: RefObject<HTMLCanvasElement>,
   nodes: Node[],
-  selecting: boolean,
-  setSelecting: React.Dispatch<React.SetStateAction<boolean>>,
+  edges: Edge[],
+  selectedNode: Node | null,
+  selectedEdge: Edge | null,
+  setSelectedEdge: React.Dispatch<React.SetStateAction<Edge | null>>,
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
   setSelectedNodePosition: React.Dispatch<
     React.SetStateAction<ScrollPosition | null>
@@ -45,19 +55,13 @@ export const handleMouseDown = (
   const x = event.clientX - left;
   const y = event.clientY - top;
   let isdrawing = false;
-  // Define the leeway for the dots
-  const dotLeeway = 8;
+
   // Check if there's a node at the clicked position
   const node = nodes.find((node: Node) => {
     // Check if the click is inside any of the dots in the node
     const dots = dotCoordinates(node);
     const isClickInsideDot = dots.some((dot: Dot) => {
-      return (
-        x >= dot.x - dot.radius - dotLeeway &&
-        x <= dot.x + dot.radius + dotLeeway &&
-        y >= dot.y - dot.radius - dotLeeway &&
-        y <= dot.y + dot.radius + dotLeeway
-      );
+      return isInsideDot(x, y, dot);
     });
     // Return false if the click is inside any of the dots
     if (isClickInsideDot) {
@@ -65,12 +69,7 @@ export const handleMouseDown = (
       isdrawing = true;
     }
     // Check if the click is inside the node
-    return (
-      x >= node.x &&
-      x <= node.x + node.width &&
-      y >= node.y &&
-      y <= node.y + node.height
-    );
+    return isInsideNode(x, y, node)
   });
   // If there's a node under the click and the user is not drawing select it
   if (node && !isdrawing) {
@@ -79,9 +78,8 @@ export const handleMouseDown = (
       n.strokeStyle !== "#000000" ? { ...n, strokeStyle: "#000000" } : n
     );
     const updatedNodes = updatingNodes.map((n: Node) =>
-      n.id === node.id ? { ...n, strokeStyle: "#0000FF" } : n
+      n.id === node.id ? { ...n, strokeStyle: defaultNodeConstructor.borderColorWhenSelected } : n
     );
-    setSelecting(true);
     setNodes(updatedNodes);
     setSelectedNode(node);
     setSelectedNodePosition({ x, y });
@@ -91,13 +89,49 @@ export const handleMouseDown = (
     setSelectedNodePosition({ x, y });
   }
   // If there's no node under the click and a node is already selected, deselect it
-  if (selecting && !node) {
-    setSelecting(false);
+  if (selectedNode && !node) {
     const updatedNodes = nodes.map((n: Node) =>
       n.strokeStyle !== "#000000" ? { ...n, strokeStyle: "#000000" } : n
     );
     setNodes(updatedNodes);
   }
+  if (!selectedNode) {
+    const findEdge = edges.find((edge) => {
+      const fromNode = nodes.find((n) => n.id === edge.from);
+      const toNode = nodes.find((n) => n.id === edge.to);
+      //refactor
+      if (fromNode && toNode) {
+        const fromCoordinates = dotCoordinates(fromNode);
+        const toCoordinates = dotCoordinates(toNode);
+        const { fromDotIndex, toDotIndex } = shortestDistancePair(fromCoordinates, toCoordinates);
+        // we implement a bounding box to find the edge
+        const boundingBox = getBoundingBox(fromCoordinates[fromDotIndex].x, fromCoordinates[fromDotIndex].y, toCoordinates[toDotIndex].x, toCoordinates[toDotIndex].y, EDGESCALE);
+        return isPointInsideBoundingBox(x, y, boundingBox);
+      }
+      return false;
+    });
+    !selectedEdge && setSelectedEdge(null)
+    findEdge && setSelectedEdge(findEdge)
+
+  }
+  if (selectedEdge) {
+    const findEdge = edges.find((edge) => {
+      const fromNode = nodes.find((n) => n.id === edge.from);
+      const toNode = nodes.find((n) => n.id === edge.to);
+      //refactor
+      if (fromNode && toNode) {
+        const fromCoordinates = dotCoordinates(fromNode);
+        const toCoordinates = dotCoordinates(toNode);
+        const { fromDotIndex, toDotIndex } = shortestDistancePair(fromCoordinates, toCoordinates);
+        // we implement a bounding box to find the edge
+        const boundingBox = getBoundingBox(fromCoordinates[fromDotIndex].x, fromCoordinates[fromDotIndex].y, toCoordinates[toDotIndex].x, toCoordinates[toDotIndex].y, EDGESCALE);
+        return isPointInsideBoundingBox(x, y, boundingBox);
+      }
+      return false;
+    });
+    !findEdge && setSelectedEdge(null)
+  }
+
 };
 
 /**
@@ -119,14 +153,15 @@ export const handleMouseMove = (
   canvasRef: RefObject<HTMLCanvasElement>,
   nodes: Node[],
   edges: Edge[],
+  selectedEdge: Edge | null,
   selectedNode: Node | null,
   selectedNodePosition: Position | null,
+  drawingEdge: boolean,
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
   setSelectedNodePosition: React.Dispatch<
     React.SetStateAction<Position | null>
   >,
   setSelectedNode: React.Dispatch<React.SetStateAction<Node | null>>,
-  drawingEdge: boolean,
   dimheight: number,
   dimwidth: number
 ) => {
@@ -159,10 +194,10 @@ export const handleMouseMove = (
       ctx,
       left,
       top,
-      colors.isDrawingEdgeStrokeStyle
+      edgeColors.isDrawingEdgeStrokeStyle
     );
     // redraw the nodes
-    drawEdges(nodes, edges, ctx, colors.defaultEdgeStrokeStyle);
+    drawEdges(nodes, edges, selectedEdge, ctx, edgeColors.defaultEdgeStrokeStyle, edgeColors.selectedEdgeColor);
     drawNodes(nodes, ctx);
   }
 };
@@ -173,26 +208,29 @@ export const handleMouseMove = (
  */
 export const handleMouseUp = (
   event: React.MouseEvent<HTMLCanvasElement>,
+  canvasRef: RefObject<HTMLCanvasElement>,
+  nodes: Node[],
+  edges: Edge[],
   selectedNode: Node | null,
+  drawingEdge: boolean,
   setSelectedNode: React.Dispatch<React.SetStateAction<Node | null>>,
   setSelectedNodePosition: React.Dispatch<
     React.SetStateAction<ScrollPosition | null>
   >,
-  drawingEdge: boolean,
   setDrawingEdge: React.Dispatch<React.SetStateAction<boolean>>,
-  nodes: Node[],
-  edges: Edge[],
-  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>
+  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>,
+
 ) => {
+  const canvas = canvasRef.current;
+  if (!canvas) return;
+  const { left, top } = canvas.getBoundingClientRect();
+  const x = event.clientX - left;
+  const y = event.clientY - top;
   // check if its drawing edge and the cursor is within the position of a node,
+
   if (drawingEdge) {
     const toNode = nodes.find((node: Node) => {
-      return (
-        event.clientX >= node.x &&
-        event.clientX <= node.x + node.width &&
-        event.clientY >= node.y &&
-        event.clientY <= node.y + node.height
-      );
+      return isInsideNode(x, y, node)
     });
     selectedNode?.id !== toNode?.id &&
       selectedNode &&
@@ -204,4 +242,15 @@ export const handleMouseUp = (
   // deselect node
   setSelectedNode(null);
   setSelectedNodePosition(null);
+};
+export const handleKeyDown = (
+  e: KeyboardEvent,
+  nodes: Node[],
+  selectedNode: Node | null,
+  setNodes: React.Dispatch<React.SetStateAction<Node[]>>, setSelectedNode: React.Dispatch<React.SetStateAction<Node | null>>) => {
+  if ((e.code === "Delete" || e.code === "Backspace") && selectedNode) {
+    const newNodes = nodes.filter((node: Node) => node.id !== selectedNode.id)
+    setNodes(newNodes);
+    setSelectedNode(null);
+  }
 };

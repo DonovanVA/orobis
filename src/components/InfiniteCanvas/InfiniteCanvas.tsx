@@ -1,107 +1,51 @@
-import { useState, useRef, useEffect, memo, useLayoutEffect } from "react";
+import { useState, useRef, memo, useLayoutEffect } from "react";
 import styled from "styled-components";
-import { handleMouseDown, handleMouseMove, handleMouseUp } from "./Controls";
 import {
-  ScrollPosition,
-  InfiniteCanvasProps,
-  Node,
-  Position,
-  Edge,
-} from "./Types";
+  handleKeyDown,
+  handleMouseDown,
+  handleMouseMove,
+  handleMouseUp,
+} from "./Controls";
+import { InfiniteCanvasProps, Position } from "./Types";
+import { Edge } from "./UI/Edges/Defaults/DefaultTypes";
+import { Node, NodeType } from "./UI/Nodes/Defaults/DefaultTypes";
 import { drawEdges, drawNodes } from "./Utils";
-import { colors } from "./UI";
-import _ from "lodash";
+import { edgeColors } from "./UI/Edges/Edges";
 import { findCycle } from "./Algorithms";
+import { sampleNodes } from "./samples";
 const Canvas = styled.canvas`
   -webkit-font-smoothing: antialiased; /* subpixel-antialiased and others... */
   -webkit-filter: blur(0px);
   -webkit-perspective: 1000;
   filter: blur(0px);
 `;
+interface CanvasContextType {
+  nodes: Node[];
+  edges: Edge[];
+  selectedNode: Node | null;
+  selectedNodePosition: Position | null;
+  selecting: boolean;
+  drawingEdge: boolean;
+  setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  setSelectedNode: React.Dispatch<React.SetStateAction<Node | null>>;
+  setSelectedNodePosition: React.Dispatch<
+    React.SetStateAction<Position | null>
+  >;
+  setDrawingEdge: React.Dispatch<React.SetStateAction<boolean>>;
+}
 
-const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
+export function InfiniteCanvas({ width, height }: InfiniteCanvasProps) {
+  // mananage application state
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [nodes, setNodes] = useState<Node[]>(sampleNodes);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [nodes, setNodes] = useState<Node[]>([
-    {
-      id: "node1",
-      width: 50,
-      height: 50,
-      x: 100,
-      y: 100,
-      fillStyle: "#FFFFFF",
-      strokeStyle: "#000000",
-    },
-    {
-      id: "node2",
-      width: 50,
-      height: 50,
-      x: 200,
-      y: 200,
-      fillStyle: "#FFFFFF",
-      strokeStyle: "#000000",
-    },
-    {
-      id: "node3",
-      width: 50,
-      height: 50,
-      x: 300,
-      y: 300,
-      fillStyle: "#FFFFFF",
-      strokeStyle: "#000000",
-    },
-    {
-      id: "node4",
-      width: 50,
-      height: 50,
-      x: 400,
-      y: 400,
-      fillStyle: "#FFFFFF",
-      strokeStyle: "#000000",
-    },
-    {
-      id: "node5",
-      width: 50,
-      height: 50,
-      x: 500,
-      y: 500,
-      fillStyle: "#FFFFFF",
-      strokeStyle: "#000000",
-    },
-  ]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   const [selectedNodePosition, setSelectedNodePosition] =
     useState<Position | null>(null);
-  const [shouldUpdateCanvas, setShouldUpdateCanvas] = useState<boolean>(false);
-  const [selecting, setSelecting] = useState<boolean>(false);
   const [drawingEdge, setDrawingEdge] = useState<boolean>(false);
-  useEffect(() => {
-    let animationFrameId: number;
 
-    const handleUpdateCanvas = () => {
-      animationFrameId = requestAnimationFrame(() => {
-        setShouldUpdateCanvas(true);
-      });
-    };
-
-    const handleAnimationFrame = () => {
-      if (shouldUpdateCanvas) {
-        setShouldUpdateCanvas(false);
-        // update the canvas here
-      }
-
-      animationFrameId = requestAnimationFrame(handleAnimationFrame);
-    };
-
-    animationFrameId = requestAnimationFrame(handleAnimationFrame);
-
-    // Add an event listener to the window object to prevent the default behavior of the mouse wheel event
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      // Remove the event listener when the component unmounts
-    };
-  }, [shouldUpdateCanvas]);
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
 
@@ -130,14 +74,33 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
 
     // Draw the edges with arrowheads
     if (findCycle(nodes, edges)) {
-      drawEdges(nodes, edges, ctx, colors.defaultEdgeStrokeStyle);
+      drawEdges(
+        nodes,
+        edges,
+        selectedEdge,
+        ctx,
+        edgeColors.defaultEdgeStrokeStyle,
+        edgeColors.selectedEdgeColor
+      );
     } else {
-      drawEdges(nodes, edges, ctx, colors.NonCycleColor);
+      drawEdges(
+        nodes,
+        edges,
+        selectedEdge,
+        ctx,
+        edgeColors.NonCycleColor,
+        edgeColors.selectedEdgeColor
+      );
     }
 
     // Draw the nodes
     drawNodes(nodes, ctx);
-  }, [selectedNode, nodes, edges]);
+
+    const eventListener = (e: KeyboardEvent) =>
+      handleKeyDown(e, nodes, selectedNode, setNodes, setSelectedNode);
+    document.addEventListener("keydown", eventListener);
+    //return () => document.removeEventListener("keydown", eventListener);
+  }, [selectedNode, nodes, edges, selectedEdge]);
 
   return (
     <Canvas
@@ -150,8 +113,10 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
           e,
           canvasRef,
           nodes,
-          selecting,
-          setSelecting,
+          edges,
+          selectedNode,
+          selectedEdge,
+          setSelectedEdge,
           setNodes,
           setSelectedNodePosition,
           setSelectedNode,
@@ -164,12 +129,13 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
           canvasRef,
           nodes,
           edges,
+          selectedEdge,
           selectedNode,
           selectedNodePosition,
+          drawingEdge,
           setNodes,
           setSelectedNodePosition,
           setSelectedNode,
-          drawingEdge,
           height,
           width
         )
@@ -177,18 +143,19 @@ const InfiniteCanvas = ({ width, height }: InfiniteCanvasProps) => {
       onMouseUp={(e) =>
         handleMouseUp(
           e,
-          selectedNode,
-          setSelectedNode,
-          setSelectedNodePosition,
-          drawingEdge,
-          setDrawingEdge,
+          canvasRef,
           nodes,
           edges,
+          selectedNode,
+          drawingEdge,
+          setSelectedNode,
+          setSelectedNodePosition,
+          setDrawingEdge,
           setEdges
         )
       }
     />
   );
-};
+}
 
 export default memo(InfiniteCanvas);

@@ -1,4 +1,5 @@
-import { Edge, Node } from "./Types";
+import { Edge } from "./UI/Edges/Defaults/DefaultTypes";
+import { Node } from "./UI/Nodes/Defaults/DefaultTypes";
 export function findCycle(nodes: Node[], edges: Edge[]) {
   let visited = new Array(nodes.length).fill(0);
   let cycle = false;

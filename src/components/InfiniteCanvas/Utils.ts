@@ -1,6 +1,11 @@
 import { findCycle } from "./Algorithms";
-import { Dot, Node, Position, Edge } from "./Types";
-import { colors } from "./UI";
+import { BoundingBox, Position } from "./Types";
+import { Node, NodeType } from "./UI/Nodes/Defaults/DefaultTypes";
+import { Edge, Dot } from "./UI/Edges/Defaults/DefaultTypes";
+import { dotCoordinates, shortestDistancePair, crossProduct } from "../Math/Math";
+import { calculateArrowCoords, bezierMidPoint, findControlPoint } from "../Math/Bezier";
+import { ConstructArc, ConstructRect } from "./UI/Nodes/Constructors";
+import { EDGESCALE } from "./UI/Edges/Edges";
 /**
  *
  * @param selectedNode selected node
@@ -70,15 +75,25 @@ export function checkCollision(
 export function drawEdges(
   nodes: Node[],
   edges: Edge[],
+  selectedEdge: Edge | null,
   ctx: CanvasRenderingContext2D,
-  color: string
+  defaultcolor: string,
+  selectedEdgeColor: string
 ) {
-  ctx.strokeStyle = color;
+
   edges.forEach((edge) => {
     const fromNode = nodes.find((n) => n.id === edge.from);
     const toNode = nodes.find((n) => n.id === edge.to);
     // if there is a graph connection
     if (fromNode && toNode) {
+
+      if (selectedEdge && ((fromNode.id !== selectedEdge.from) || (toNode.id !== selectedEdge.to))) {
+        console.log(fromNode)
+        ctx.strokeStyle = defaultcolor;
+      }
+      else if(selectedEdge &&((fromNode.id === selectedEdge.from) || (toNode.id == selectedEdge.to))) {
+        ctx.strokeStyle = selectedEdgeColor;
+      }
       const fromCoordinates = dotCoordinates(fromNode);
       const toCoordinates = dotCoordinates(toNode);
       const { fromDotIndex, toDotIndex } = shortestDistancePair(
@@ -136,6 +151,16 @@ export function drawEdges(
         arrowLength,
         arrowAngle
       );
+      //refactor
+      console.log(selectedEdge)
+      if (fromNode.id === selectedEdge?.from && toNode.id === selectedEdge?.to) {
+        const fromCoordinates = dotCoordinates(fromNode);
+        const toCoordinates = dotCoordinates(toNode);
+        const { fromDotIndex, toDotIndex } = shortestDistancePair(fromCoordinates, toCoordinates);
+        // we implement a bounding box to find the edge
+        const boundingBox = getBoundingBox(fromCoordinates[fromDotIndex].x, fromCoordinates[fromDotIndex].y, toCoordinates[toDotIndex].x, toCoordinates[toDotIndex].y,EDGESCALE);
+        ctx.strokeRect(boundingBox.minX, boundingBox.minY, boundingBox.maxX - boundingBox.minX, boundingBox.maxY - boundingBox.minY);
+      }
 
       // draw the arrow for the first side
       ctx.beginPath();
@@ -154,17 +179,14 @@ export function drawEdges(
 export function drawNodes(nodes: Node[], ctx: CanvasRenderingContext2D) {
   ctx.imageSmoothingEnabled = false; // disable anti-aliasing
   nodes.forEach((node: Node) => {
-    ctx.fillStyle = node.fillStyle;
-    ctx.fillRect(node.x, node.y, node.width, node.height);
-    ctx.strokeStyle = node.strokeStyle;
-    ctx.strokeRect(node.x, node.y, node.width, node.height);
-    ctx.beginPath();
-    drawDots(node, ctx);
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "black";
-    ctx.fillText(node.id, node.x + node.width / 2, node.y + node.height / 2);
+    if (node.type === NodeType.RECT) {
+      ConstructRect(ctx, node)
+      drawDots(node, ctx);
+    }
+    else if (node.type === NodeType.ARC) {
+      ConstructArc(ctx, node)
+      drawDots(node, ctx);
+    }
   });
 }
 /**
@@ -382,181 +404,45 @@ export function createEdge(
     setEdges(copyOfEdges);
   }
 }
-/**
- * Determine the coordinates of the dots given a node
- * @param node : node of the object
- * @returns an array of dots on the node
- */
-export function dotCoordinates(node: Node) {
-  return [
-    {
-      x: node.x + node.width,
-      y: node.y + node.height / 2,
-      radius: 1,
-    },
-    {
-      x: node.x + node.width / 2,
-      y: node.y,
-      radius: 1,
-    },
-    {
-      x: node.x,
-      y: node.y + node.height / 2,
-      radius: 1,
-    },
-    {
-      x: node.x + node.width / 2,
-      y: node.y + node.height,
-      radius: 1,
-    },
-  ];
-}
-/**
- * Calculates the control points of a quadratic bezier curve given two points.
- * @param fromX The x coordinate of the starting point.
- * @param fromY The y coordinate of the starting point.
- * @param toX The x coordinate of the ending point.
- * @param toY The y coordinate of the ending point.
- * @returns An object containing the x and y coordinates of the two control points,
- *          the delta x and y between the two points, and the angle between them.
- */
-function findControlPoint(
-  fromX: number,
-  fromY: number,
-  toX: number,
-  toY: number
-) {
-  // Calculate the delta x and y between the two points
-  const dx = toX - fromX;
-  const dy = toY - fromY;
 
-  // Calculate the euclidean distance between the two points
-  const dist = euclideanDistance(fromX, fromY, toX, toY);
 
-  // Calculate the angle between the two points and the x-axis
-  const angle = Math.atan2(dy, dx);
-
-  // Calculate the angles between the two points and the control points
-  const angle1 = angle + Math.atan2(dy, dx) + Math.PI / 2;
-  const angle2 = angle + Math.atan2(dy, dx) - Math.PI / 2;
-
-  // Calculate the x and y coordinates of the control points
-  const cp1X = fromX + (dist / 4) * Math.cos(angle1);
-  const cp1Y = fromY + (dist / 4) * Math.sin(angle1);
-  const cp2X = toX + (dist / 4) * Math.cos(angle2);
-  const cp2Y = toY + (dist / 4) * Math.sin(angle2);
-
-  // Return an object containing the control points, delta x and y, and angle
-  return { cp1X, cp1Y, cp2X, cp2Y, dx, dy, angle };
-}
-/**
- * Determine the shortest path between 2 nodes dot points
- * @param from the array of from Dot
- * @param to the array of to Dot
- * @returns indexes of the shortest pair of dots
- */
-function shortestDistancePair(from: Dot[], to: Dot[]) {
-  let shortestDistance = 0;
-  let fromDotIndex = 0;
-  let toDotIndex = 0;
-  from.map((fromDot: Dot, fromIndex: number) => {
-    to.map((toDot: Dot, toIndex: number) => {
-      let newShortestDistance = euclideanDistance(
-        fromDot.x,
-        fromDot.y,
-        toDot.x,
-        toDot.y
-      );
-      if (shortestDistance <= 0 || newShortestDistance < shortestDistance) {
-        shortestDistance = newShortestDistance;
-        fromDotIndex = fromIndex;
-        toDotIndex = toIndex;
-      }
-    });
-  });
-  return { fromDotIndex, toDotIndex };
+export function isInsideDot(x: number, y: number, dot: Dot) {
+  const dotLeeway = 10
+  return (
+    x >= dot.x - dot.radius - dotLeeway &&
+    x <= dot.x + dot.radius + dotLeeway &&
+    y >= dot.y - dot.radius - dotLeeway &&
+    y <= dot.y + dot.radius + dotLeeway
+  )
 }
 
-/**
- * Calculates the cross product of the 2 points
- * @param x1 the x coordinate of the first point
- * @param y1 the y coordinate of the second point
- * @param x2 the x coordinate of the first point
- * @param y2 the y coordinate of the second point
- * @returns the cross product between (x1,y1) and (x2,y2)
- */
-function crossProduct(x1: number, y1: number, x2: number, y2: number) {
-  return x1 * y2 - x2 * y1;
-}
-/**
- * Calculates the coordinates of an arrow with a given length and angle,
- * originating from the specified (x, y) point.
- * @param x The x-coordinate of the starting point of the arrow.
- * @param y The y-coordinate of the starting point of the arrow.
- * @param length The length of the arrow.
- * @param angle The angle of the arrow, in radians.
- * @returns An object containing the x and y coordinates of the arrow's start and end points.
- */
-function calculateArrowCoords(
-  x: number,
-  y: number,
-  length: number,
-  angle: number
-) {
-  const x1 = x + length * Math.cos(angle - Math.PI / 6);
-  const y1 = y + length * Math.sin(angle - Math.PI / 6);
-  const x2 = x + length * Math.cos(angle + Math.PI / 6);
-  const y2 = y + length * Math.sin(angle + Math.PI / 6);
-  return { x1, y1, x2, y2 };
-}
-/**
- * Calculates the position of a point on a cubic bezier curve given a value of t between 0 and 1.
- * @param t The value of t between 0 and 1.
- * @param fromX The starting x-coordinate of the curve.
- * @param fromY The starting y-coordinate of the curve.
- * @param cp1X The x-coordinate of the first control point of the curve.
- * @param cp2X The x-coordinate of the second control point of the curve.
- * @param toX The ending x-coordinate of the curve.
- * @param cp1Y The y-coordinate of the first control point of the curve.
- * @param cp2Y The y-coordinate of the second control point of the curve.
- * @param toY The ending y-coordinate of the curve.
- * @returns An object containing the x and y coordinates of the point on the curve at the given value of t.
- */
-function bezierMidPoint(
-  t: number,
-  fromX: number,
-  fromY: number,
-  cp1X: number,
-  cp2X: number,
-  toX: number,
-  cp1Y: number,
-  cp2Y: number,
-  toY: number
-): { bezierPointX: number; bezierPointY: number } {
-  const bezierPointX =
-    Math.pow(1 - t, 3) * fromX +
-    3 * Math.pow(1 - t, 2) * t * cp1X +
-    3 * (1 - t) * Math.pow(t, 2) * cp2X +
-    Math.pow(t, 3) * toX;
-  const bezierPointY =
-    Math.pow(1 - t, 3) * fromY +
-    3 * Math.pow(1 - t, 2) * t * cp1Y +
-    3 * (1 - t) * Math.pow(t, 2) * cp2Y +
-    Math.pow(t, 3) * toY;
-
-  return { bezierPointX, bezierPointY };
+export function isInsideNode(x: number, y: number, node: Node) {
+  return (
+    x >= node.x &&
+    x <= node.x + node.width &&
+    y >= node.y &&
+    y <= node.y + node.height
+  );
 }
 
-/**
- * Calculates the given euclidean distance between 2 points
- * @param x1 the x coordinate of the first point
- * @param y1 the y coordinate of the second point
- * @param x2 the x coordinate of the first point
- * @param y2 the y coordinate of the second point
- * @returns the euclidean distance between (x1,y1) and (x2,y2)
- */
-function euclideanDistance(x1: number, y1: number, x2: number, y2: number) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  return Math.sqrt(dx * dx + dy * dy);
+export function getBoundingBox(x1: number, y1: number, x2: number, y2: number, shrinkAmount: number) {
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const center = {
+    x: (x1 + x2) / 2,
+    y: (y1 + y2) / 2,
+  };
+  const newHalfWidth = halfWidth - shrinkAmount / 2;
+  const newHalfHeight = halfHeight;
+  const minX = center.x - newHalfWidth;
+  const maxX = center.x + newHalfWidth;
+  const minY = center.y - newHalfHeight;
+  const maxY = center.y + newHalfHeight;
+  return { minX, maxX, minY, maxY };
+}
+
+export function isPointInsideBoundingBox(x: number, y: number, boundingBox: BoundingBox) {
+  return x >= boundingBox.minX && x <= boundingBox.maxX && y >= boundingBox.minY && y <= boundingBox.maxY;
 }
