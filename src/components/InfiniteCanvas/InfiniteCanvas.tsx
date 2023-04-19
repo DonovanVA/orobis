@@ -36,7 +36,9 @@ interface CanvasContextType {
 }
 
 export function InfiniteCanvas({ width, height }: InfiniteCanvasProps) {
-  // mananage application state
+  // 1. refactor 
+  // 2. manage application state
+  // 3. boundary box for nodes
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodes, setNodes] = useState<Node[]>(sampleNodes);
   const [edges, setEdges] = useState<Edge[]>([]);
